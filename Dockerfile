@@ -2,24 +2,12 @@
 FROM node:18-alpine AS base
 WORKDIR /app
 
-# Install dumb-init for proper signal handling
-RUN apk add --no-cache dumb-init
-
-# Copy package files
+# Copy package files and install production dependencies
 COPY package*.json ./
+RUN npm ci --omit=dev --ignore-scripts
 
-# Development stage
-FROM base AS development
-RUN npm ci --include=dev
-COPY . .
-CMD ["dumb-init", "npm", "run", "dev"]
-
-# Build stage
-FROM base AS build
-RUN npm ci --include=dev
-COPY . .
-RUN npm run build
-RUN npm prune --production
+# Copy pre-built application
+COPY dist ./dist
 
 # Production stage
 FROM node:18-alpine AS production
@@ -28,28 +16,22 @@ FROM node:18-alpine AS production
 RUN addgroup -g 1001 -S nodeapp && \
     adduser -S nodeapp -u 1001
 
-# Install dumb-init for signal handling
-RUN apk add --no-cache dumb-init
-
 WORKDIR /app
 
-# Copy built application and production dependencies
-COPY --from=build --chown=nodeapp:nodeapp /app/dist ./dist
-COPY --from=build --chown=nodeapp:nodeapp /app/node_modules ./node_modules
-COPY --from=build --chown=nodeapp:nodeapp /app/package*.json ./
+# Copy dependencies and built application from base stage
+COPY --from=base --chown=nodeapp:nodeapp /app/node_modules ./node_modules
+COPY --from=base --chown=nodeapp:nodeapp /app/dist ./dist
+COPY --chown=nodeapp:nodeapp package*.json ./
 
 # Security: Use non-root user
 USER nodeapp
 
-# Health check
+# Health check using node.js instead of external tools
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://localhost:3000/health || exit 1
+  CMD node -e "require('http').get('http://localhost:3000/health', (res) => process.exit(res.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"
 
 # Expose port
 EXPOSE 3000
 
-# Use dumb-init to handle signals properly
-ENTRYPOINT ["dumb-init", "--"]
-
-# Start the application
+# Start the application (Node.js handles signals properly in containers)
 CMD ["node", "dist/app.js"]
