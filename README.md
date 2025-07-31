@@ -160,48 +160,91 @@ docker run -p 3000:3000 -e NODE_ENV=production k8snode-api:latest
 
 ## ☸️ Kubernetes Deployment
 
+### 🌟 Gateway API (Recomendado)
+
+Este projeto usa **Gateway API** para roteamento avançado, substituindo o Ingress tradicional.
+
+**🚀 Deploy Rápido:**
+```bash
+# Deploy completo (HML + PRD)
+./deploy-gateway.sh all
+
+# Apenas homologação
+./deploy-gateway.sh hml
+
+# Apenas produção
+./deploy-gateway.sh prd
+```
+
+**📖 Documentação Completa:** [Gateway API README](./k8s/GATEWAY_API_README.md)
+
 ### Prerequisites
 
-- AWS EKS cluster
-- kubectl configured
-- ECR repository
+- Kubernetes cluster (EKS, GKE, AKS)
+- kubectl configurado
+- Gateway API CRDs instalados
+- NGINX Gateway Fabric ou similar
 
 ### Deployment Environments
 
-#### HML (Homologation)
+#### HML (Homologação)
 - **Namespace**: `k8snode-hml`
 - **Replicas**: 2-5 (auto-scaling)
 - **Resources**: 100m CPU, 128Mi RAM (limits: 500m CPU, 512Mi RAM)
-- **Trigger**: Automatic on push to `main` branch
+- **Domínios**: `hml.yourdomain.com`, `api-hml.yourdomain.com`
+- **SSL**: Let's Encrypt Staging
 
-#### PRD (Production)
+#### PRD (Produção)
 - **Namespace**: `k8snode-prd`
 - **Replicas**: 3-10 (auto-scaling)
 - **Resources**: 200m CPU, 256Mi RAM (limits: 1000m CPU, 1Gi RAM)
-- **Trigger**: Manual via workflow_dispatch
+- **Domínios**: `yourdomain.com`, `api.yourdomain.com`
+- **SSL**: Let's Encrypt Production
 
-### Manual Deployment
+### 🔧 Manual Deployment
 
-1. **Apply namespaces:**
+1. **Instalar Gateway API CRDs:**
    ```bash
+   kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.0.0/standard-install.yaml
+   ```
+
+2. **Deploy infraestrutura global:**
+   ```bash
+   kubectl apply -f k8s/gatewayclass.yaml
+   kubectl apply -f k8s/referencegrant.yaml
    kubectl apply -f k8s/namespaces.yaml
    ```
 
-2. **Deploy to HML:**
+3. **Deploy ambientes:**
    ```bash
+   # Homologação
    kubectl apply -f k8s/hml/
-   ```
 
-3. **Deploy to PRD:**
-   ```bash
+   # Produção
    kubectl apply -f k8s/prd/
    ```
 
-4. **Check deployment status:**
+4. **Verificar status:**
    ```bash
+   kubectl get gateway -A
+   kubectl get httproute -A
    kubectl get pods -n k8snode-hml
-   kubectl get svc -n k8snode-hml
+   kubectl get pods -n k8snode-prd
    ```
+
+### 🌐 Acesso Público
+
+Configure DNS para apontar para o IP do Gateway:
+
+```bash
+# Obter IP do Gateway
+kubectl get gateway k8snode-gateway -n k8snode-prd -o jsonpath='{.status.addresses[0].value}'
+```
+
+**Endpoints Disponíveis:**
+- `https://yourdomain.com/health` - Health check
+- `https://api.yourdomain.com/auth/login` - Autenticação
+- `https://yourdomain.com/api/v1/*` - API versionada
 
 ## 🚀 CI/CD Pipeline
 

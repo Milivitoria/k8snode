@@ -1,0 +1,36 @@
+apiVersion: gateway.networking.k8s.io/v1alpha2
+kind: BackendTLSPolicy
+metadata:
+  name: k8snode-backend-tls
+  namespace: k8snode-prd
+  labels:
+    app: k8snode-api
+    environment: prd
+spec:
+  targetRef:
+    group: ""
+    kind: Service
+    name: k8snode-api-service
+  tls:
+    caCertRefs:
+    - name: ca-secret
+      group: ""
+      kind: Secret
+    hostname: k8snode-api-service.k8snode-prd.svc.cluster.local
+---
+apiVersion: gateway.networking.k8s.io/v1alpha2
+kind: HTTPRouteTimeouts
+metadata:
+  name: k8snode-timeouts
+  namespace: k8snode-prd
+  labels:
+    app: k8snode-api
+    environment: prd
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: k8snode-http-route
+  timeouts:
+    request: "30s"
+    backendRequest: "25s"

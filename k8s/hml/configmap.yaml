@@ -11,4 +11,4 @@ data:
   PORT: "3000"
   LOG_LEVEL: "info"
   JWT_EXPIRES_IN: "24h"
-  CORS_ORIGIN: "*"
+  CORS_ORIGIN: "https://hml.yourdomain.com,https://api-hml.yourdomain.com"

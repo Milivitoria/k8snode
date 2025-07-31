@@ -1,0 +1,35 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: k8snode-gateway
+  namespace: k8snode-hml
+  labels:
+    app: k8snode-api
+    environment: hml
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-staging"
+spec:
+  gatewayClassName: nginx
+  listeners:
+  - name: http
+    port: 80
+    protocol: HTTP
+    hostname: "*.yourdomain.com"
+    allowedRoutes:
+      namespaces:
+        from: Same
+  - name: https
+    port: 443
+    protocol: HTTPS
+    hostname: "*.yourdomain.com"
+    tls:
+      mode: Terminate
+      certificateRefs:
+      - name: k8snode-gateway-tls-hml
+        kind: Secret
+    allowedRoutes:
+      namespaces:
+        from: Same
+  addresses:
+  - type: NamedAddress
+    value: nginx-gateway

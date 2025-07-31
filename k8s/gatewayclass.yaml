@@ -1,0 +1,31 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: nginx
+  labels:
+    app: k8snode-api
+spec:
+  controllerName: k8s.nginx.org/nginx-gateway-controller
+  parametersRef:
+    group: gateway.nginx.org
+    kind: NginxGateway
+    name: nginx-gateway-config
+  description: "NGINX Gateway Controller for k8snode API"
+---
+apiVersion: gateway.nginx.org/v1alpha1
+kind: NginxGateway
+metadata:
+  name: nginx-gateway-config
+  labels:
+    app: k8snode-api
+spec:
+  logging:
+    level: info
+  telemetry:
+    exporter:
+      interval: 5s
+      batchSize: 512
+    serviceName: nginx-gateway
+  observability:
+    tracing:
+      strategy: parent-child

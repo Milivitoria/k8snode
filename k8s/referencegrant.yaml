@@ -1,0 +1,52 @@
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata:
+  name: allow-gateways-to-ref-secrets
+  namespace: cert-manager
+  labels:
+    app: k8snode-api
+spec:
+  from:
+  - group: gateway.networking.k8s.io
+    kind: Gateway
+    namespace: k8snode-prd
+  - group: gateway.networking.k8s.io
+    kind: Gateway
+    namespace: k8snode-hml
+  to:
+  - group: ""
+    kind: Secret
+---
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata:
+  name: allow-httproutes-to-ref-services
+  namespace: k8snode-prd
+  labels:
+    app: k8snode-api
+    environment: prd
+spec:
+  from:
+  - group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    namespace: k8snode-prd
+  to:
+  - group: ""
+    kind: Service
+---
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata:
+  name: allow-httproutes-to-ref-services
+  namespace: k8snode-hml
+  labels:
+    app: k8snode-api
+    environment: hml
+spec:
+  from:
+  - group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    namespace: k8snode-hml
+  to:
+  - group: ""
+    kind: Service

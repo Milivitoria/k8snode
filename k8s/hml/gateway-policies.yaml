@@ -1,0 +1,16 @@
+apiVersion: gateway.networking.k8s.io/v1alpha2
+kind: HTTPRouteTimeouts
+metadata:
+  name: k8snode-timeouts
+  namespace: k8snode-hml
+  labels:
+    app: k8snode-api
+    environment: hml
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: k8snode-http-route
+  timeouts:
+    request: "60s"
+    backendRequest: "55s"

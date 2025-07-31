@@ -1,0 +1,82 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: k8snode-http-route
+  namespace: k8snode-hml
+  labels:
+    app: k8snode-api
+    environment: hml
+spec:
+  parentRefs:
+  - name: k8snode-gateway
+    sectionName: https
+  hostnames:
+  - "hml.yourdomain.com"
+  - "api-hml.yourdomain.com"
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /health
+    backendRefs:
+    - name: k8snode-api-service
+      port: 80
+      weight: 100
+    filters:
+    - type: ResponseHeaderModifier
+      responseHeaderModifier:
+        add:
+        - name: X-Health-Check
+          value: "ok"
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /auth
+    backendRefs:
+    - name: k8snode-api-service
+      port: 80
+      weight: 100
+    filters:
+    - type: RequestHeaderModifier
+      requestHeaderModifier:
+        add:
+        - name: X-Auth-Route
+          value: "true"
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /
+    backendRefs:
+    - name: k8snode-api-service
+      port: 80
+      weight: 100
+    filters:
+    - type: ResponseHeaderModifier
+      responseHeaderModifier:
+        add:
+        - name: X-Environment
+          value: "homologation"
+        - name: X-Powered-By
+          value: "k8snode-api"
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: k8snode-http-redirect
+  namespace: k8snode-hml
+  labels:
+    app: k8snode-api
+    environment: hml
+spec:
+  parentRefs:
+  - name: k8snode-gateway
+    sectionName: http
+  hostnames:
+  - "hml.yourdomain.com"
+  - "api-hml.yourdomain.com"
+  rules:
+  - filters:
+    - type: RequestRedirect
+      requestRedirect:
+        scheme: https
+        statusCode: 301
