@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: k8snode-hml
+  labels:
+    name: k8snode-hml
+    environment: homologation
+    app: k8snode-api
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: k8snode-prd
+  labels:
+    name: k8snode-prd
+    environment: production
+    app: k8snode-api

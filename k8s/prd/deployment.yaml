@@ -1,0 +1,92 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: k8snode-api
+  namespace: k8snode-prd
+  labels:
+    app: k8snode-api
+    environment: prd
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: k8snode-api
+      environment: prd
+  template:
+    metadata:
+      labels:
+        app: k8snode-api
+        environment: prd
+    spec:
+      containers:
+      - name: k8snode-api
+        image: YOUR_ECR_REGISTRY/k8snode-api:latest
+        ports:
+        - containerPort: 3000
+          name: http
+        env:
+        - name: NODE_ENV
+          valueFrom:
+            configMapKeyRef:
+              name: k8snode-config
+              key: NODE_ENV
+        - name: PORT
+          valueFrom:
+            configMapKeyRef:
+              name: k8snode-config
+              key: PORT
+        - name: LOG_LEVEL
+          valueFrom:
+            configMapKeyRef:
+              name: k8snode-config
+              key: LOG_LEVEL
+        - name: JWT_EXPIRES_IN
+          valueFrom:
+            configMapKeyRef:
+              name: k8snode-config
+              key: JWT_EXPIRES_IN
+        - name: CORS_ORIGIN
+          valueFrom:
+            configMapKeyRef:
+              name: k8snode-config
+              key: CORS_ORIGIN
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: k8snode-secrets
+              key: JWT_SECRET
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "200m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1001
+          runAsGroup: 1001
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: false
+      securityContext:
+        fsGroup: 1001
+      restartPolicy: Always

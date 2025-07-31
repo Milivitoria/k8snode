@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: k8snode-config
+  namespace: k8snode-hml
+  labels:
+    app: k8snode-api
+    environment: hml
+data:
+  NODE_ENV: "homologation"
+  PORT: "3000"
+  LOG_LEVEL: "info"
+  JWT_EXPIRES_IN: "24h"
+  CORS_ORIGIN: "*"

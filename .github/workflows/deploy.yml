@@ -1,0 +1,241 @@
+name: Deploy to AWS EKS
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'prd'
+        type: choice
+        options:
+        - hml
+        - prd
+
+env:
+  ECR_REGISTRY: ${{ secrets.ECR_REGISTRY }}
+  ECR_REPOSITORY: k8snode-api
+  EKS_CLUSTER_NAME: ${{ secrets.EKS_CLUSTER_NAME }}
+  AWS_REGION: us-east-1
+
+jobs:
+  test:
+    name: Test and Lint
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Run linting
+      run: npm run lint
+
+    - name: Run tests
+      run: npm test
+
+    - name: Build TypeScript
+      run: npm run build
+
+  build-and-push:
+    name: Build and Push Docker Image
+    runs-on: ubuntu-latest
+    needs: test
+    outputs:
+      image: ${{ steps.image.outputs.image }}
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    - name: Generate image tag
+      id: tag
+      run: |
+        echo "IMAGE_TAG=${GITHUB_SHA:0:8}-$(date +%s)" >> $GITHUB_ENV
+        echo "SHORT_SHA=${GITHUB_SHA:0:8}" >> $GITHUB_ENV
+
+    - name: Build, tag, and push image to Amazon ECR
+      id: image
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ env.IMAGE_TAG }}
+      run: |
+        # Build image
+        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+        docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
+        
+        # Push image
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+        
+        # Output image URI
+        echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+  deploy-hml:
+    name: Deploy to HML
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: github.ref == 'refs/heads/main'
+    environment: hml
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Update kubeconfig
+      run: |
+        aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name ${{ env.EKS_CLUSTER_NAME }}
+
+    - name: Update image in deployment
+      run: |
+        sed -i 's|YOUR_ECR_REGISTRY|${{ env.ECR_REGISTRY }}|g' k8s/hml/deployment.yaml
+        sed -i 's|:latest|:${{ env.IMAGE_TAG }}|g' k8s/hml/deployment.yaml
+
+    - name: Deploy to HML
+      run: |
+        # Apply namespaces first
+        kubectl apply -f k8s/namespaces.yaml
+        
+        # Apply HML configurations
+        kubectl apply -f k8s/hml/
+        
+        # Wait for rollout
+        kubectl rollout status deployment/k8snode-api -n k8snode-hml --timeout=300s
+
+    - name: Verify deployment
+      run: |
+        kubectl get pods -n k8snode-hml
+        kubectl get svc -n k8snode-hml
+
+    - name: Run health check
+      run: |
+        # Get service URL
+        SERVICE_URL=$(kubectl get svc k8snode-api-service -n k8snode-hml -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+        if [ -z "$SERVICE_URL" ]; then
+          SERVICE_URL=$(kubectl get svc k8snode-api-service -n k8snode-hml -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+        fi
+        
+        # Wait for service to be ready and perform health check
+        echo "Waiting for service to be ready..."
+        sleep 30
+        
+        # Health check with retry
+        for i in {1..5}; do
+          if curl -f http://$SERVICE_URL/health; then
+            echo "Health check passed!"
+            break
+          else
+            echo "Health check failed, retrying in 10 seconds..."
+            sleep 10
+          fi
+        done
+
+  deploy-prd:
+    name: Deploy to PRD
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'prd'
+    environment: prd
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Update kubeconfig
+      run: |
+        aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name ${{ env.EKS_CLUSTER_NAME }}
+
+    - name: Update image in deployment
+      run: |
+        sed -i 's|YOUR_ECR_REGISTRY|${{ env.ECR_REGISTRY }}|g' k8s/prd/deployment.yaml
+        sed -i 's|:latest|:${{ env.IMAGE_TAG }}|g' k8s/prd/deployment.yaml
+
+    - name: Deploy to PRD
+      run: |
+        # Apply namespaces first
+        kubectl apply -f k8s/namespaces.yaml
+        
+        # Apply PRD configurations
+        kubectl apply -f k8s/prd/
+        
+        # Wait for rollout
+        kubectl rollout status deployment/k8snode-api -n k8snode-prd --timeout=600s
+
+    - name: Verify deployment
+      run: |
+        kubectl get pods -n k8snode-prd
+        kubectl get svc -n k8snode-prd
+
+    - name: Run health check
+      run: |
+        # Get service URL
+        SERVICE_URL=$(kubectl get svc k8snode-api-service -n k8snode-prd -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+        if [ -z "$SERVICE_URL" ]; then
+          SERVICE_URL=$(kubectl get svc k8snode-api-service -n k8snode-prd -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+        fi
+        
+        # Wait for service to be ready and perform health check
+        echo "Waiting for service to be ready..."
+        sleep 60
+        
+        # Health check with retry
+        for i in {1..10}; do
+          if curl -f http://$SERVICE_URL/health; then
+            echo "Health check passed!"
+            break
+          else
+            echo "Health check failed, retrying in 15 seconds..."
+            sleep 15
+          fi
+        done
+
+  notify:
+    name: Notify Deployment Status
+    runs-on: ubuntu-latest
+    needs: [deploy-hml, deploy-prd]
+    if: always()
+    steps:
+    - name: Deployment Success
+      if: needs.deploy-hml.result == 'success' || needs.deploy-prd.result == 'success'
+      run: |
+        echo "🚀 Deployment completed successfully!"
+        echo "Environment: ${{ github.event.inputs.environment || 'hml' }}"
+        echo "Image: ${{ needs.build-and-push.outputs.image }}"
+
+    - name: Deployment Failure
+      if: needs.deploy-hml.result == 'failure' || needs.deploy-prd.result == 'failure'
+      run: |
+        echo "❌ Deployment failed!"
+        echo "Please check the logs and consider rolling back."
+        exit 1
