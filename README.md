@@ -178,6 +178,27 @@ Este projeto usa **Gateway API** para roteamento avançado, substituindo o Ingre
 
 **📖 Documentação Completa:** [Gateway API README](./k8s/GATEWAY_API_README.md)
 
+### 🔍 Validação de Configuração
+
+Antes de fazer o deploy, é recomendado validar todas as configurações:
+
+```bash
+# Validar todas as configurações
+./validate-config.sh all
+
+# Validar apenas HML
+./validate-config.sh hml
+
+# Validar apenas PRD
+./validate-config.sh prd
+```
+
+O script de validação verifica:
+- Sintaxe YAML de todos os manifestos Kubernetes
+- Configurações específicas do ambiente
+- Configuração da aplicação (build, Dockerfile)
+- Pipeline de CI/CD
+
 ### Prerequisites
 
 - Kubernetes cluster (EKS, GKE, AKS)
@@ -254,10 +275,19 @@ The pipeline includes:
 
 1. **Test & Lint**: Runs tests and code quality checks
 2. **Build & Push**: Builds Docker image and pushes to ECR
-3. **Deploy HML**: Automatic deployment to homologation (main branch)
-4. **Deploy PRD**: Manual deployment to production (workflow_dispatch)
-5. **Health Checks**: Verifies deployment success
-6. **Notifications**: Reports deployment status
+3. **Deploy HML**: Automatic deployment to homologation (main branch) using Gateway API
+4. **Deploy PRD**: Manual deployment to production (workflow_dispatch) using Gateway API
+5. **Gateway Verification**: Validates Gateway API resources and connectivity
+6. **Health Checks**: Verifies deployment success through Gateway endpoints
+7. **Notifications**: Reports deployment status with Gateway information
+
+### 🌟 Melhorias do Pipeline
+
+- **Gateway API Integration**: Pipeline agora usa o script `deploy-gateway.sh` para deployment completo
+- **Validação de Gateway**: Verifica status do Gateway e HTTPRoute após deployment
+- **Health Checks Avançados**: Testa conectividade através do Gateway em vez de apenas o Service
+- **Melhor Tratamento de Erros**: Variáveis de ambiente corrigidas entre jobs
+- **Informações Detalhadas**: Notificações incluem URLs de acesso e próximos passos
 
 ### Required GitHub Secrets
 

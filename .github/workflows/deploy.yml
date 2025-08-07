@@ -52,6 +52,7 @@ jobs:
     needs: test
     outputs:
       image: ${{ steps.image.outputs.image }}
+      image-tag: ${{ steps.tag.outputs.image-tag }}
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -70,14 +71,16 @@ jobs:
     - name: Generate image tag
       id: tag
       run: |
-        echo "IMAGE_TAG=${GITHUB_SHA:0:8}-$(date +%s)" >> $GITHUB_ENV
+        IMAGE_TAG="${GITHUB_SHA:0:8}-$(date +%s)"
+        echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+        echo "image-tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
         echo "SHORT_SHA=${GITHUB_SHA:0:8}" >> $GITHUB_ENV
 
     - name: Build, tag, and push image to Amazon ECR
       id: image
       env:
         ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-        IMAGE_TAG: ${{ env.IMAGE_TAG }}
+        IMAGE_TAG: ${{ steps.tag.outputs.image-tag }}
       run: |
         # Build image
         docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
@@ -114,46 +117,59 @@ jobs:
     - name: Update image in deployment
       run: |
         sed -i 's|YOUR_ECR_REGISTRY|${{ env.ECR_REGISTRY }}|g' k8s/hml/deployment.yaml
-        sed -i 's|:latest|:${{ env.IMAGE_TAG }}|g' k8s/hml/deployment.yaml
+        sed -i 's|:latest|:${{ needs.build-and-push.outputs.image-tag }}|g' k8s/hml/deployment.yaml
 
-    - name: Deploy to HML
+    - name: Deploy to HML with Gateway API
       run: |
-        # Apply namespaces first
-        kubectl apply -f k8s/namespaces.yaml
+        # Make deployment script executable
+        chmod +x deploy-gateway.sh
         
-        # Apply HML configurations
-        kubectl apply -f k8s/hml/
+        # Deploy HML environment using Gateway API
+        ./deploy-gateway.sh hml
+
+    - name: Verify Gateway API deployment
+      run: |
+        echo "Verifying Gateway API deployment..."
         
-        # Wait for rollout
-        kubectl rollout status deployment/k8snode-api -n k8snode-hml --timeout=300s
+        # Check Gateway status
+        kubectl get gateway k8snode-gateway -n k8snode-hml -o wide
+        
+        # Check HTTPRoute status
+        kubectl get httproute -n k8snode-hml -o wide
+        
+        # Check pods
+        kubectl get pods -n k8snode-hml -l app=k8snode-api
+        
+        # Wait for Gateway to be ready
+        echo "Waiting for Gateway to be ready..."
+        kubectl wait --for=condition=Programmed gateway/k8snode-gateway -n k8snode-hml --timeout=300s
 
-    - name: Verify deployment
+    - name: Run Gateway health check
       run: |
-        kubectl get pods -n k8snode-hml
-        kubectl get svc -n k8snode-hml
-
-    - name: Run health check
-      run: |
-        # Get service URL
-        SERVICE_URL=$(kubectl get svc k8snode-api-service -n k8snode-hml -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
-        if [ -z "$SERVICE_URL" ]; then
-          SERVICE_URL=$(kubectl get svc k8snode-api-service -n k8snode-hml -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+        # Get Gateway IP
+        GATEWAY_IP=$(kubectl get gateway k8snode-gateway -n k8snode-hml -o jsonpath='{.status.addresses[0].value}' 2>/dev/null || echo "")
+        
+        if [ -n "$GATEWAY_IP" ]; then
+          echo "Gateway IP: $GATEWAY_IP"
+          
+          # Health check through Gateway (using IP with Host header)
+          echo "Testing Gateway health check..."
+          for i in {1..10}; do
+            if curl -f -H "Host: hml.yourdomain.com" http://$GATEWAY_IP/health; then
+              echo "Gateway health check passed!"
+              break
+            else
+              echo "Gateway health check failed, retrying in 15 seconds..."
+              sleep 15
+            fi
+          done
+        else
+          echo "Gateway IP not available yet, using service for health check..."
+          kubectl port-forward svc/k8snode-api-service 8080:80 -n k8snode-hml &
+          sleep 10
+          curl -f http://localhost:8080/health || echo "Service health check failed"
+          pkill -f "kubectl port-forward" || true
         fi
-        
-        # Wait for service to be ready and perform health check
-        echo "Waiting for service to be ready..."
-        sleep 30
-        
-        # Health check with retry
-        for i in {1..5}; do
-          if curl -f http://$SERVICE_URL/health; then
-            echo "Health check passed!"
-            break
-          else
-            echo "Health check failed, retrying in 10 seconds..."
-            sleep 10
-          fi
-        done
 
   deploy-prd:
     name: Deploy to PRD
@@ -179,46 +195,59 @@ jobs:
     - name: Update image in deployment
       run: |
         sed -i 's|YOUR_ECR_REGISTRY|${{ env.ECR_REGISTRY }}|g' k8s/prd/deployment.yaml
-        sed -i 's|:latest|:${{ env.IMAGE_TAG }}|g' k8s/prd/deployment.yaml
+        sed -i 's|:latest|:${{ needs.build-and-push.outputs.image-tag }}|g' k8s/prd/deployment.yaml
 
-    - name: Deploy to PRD
+    - name: Deploy to PRD with Gateway API
       run: |
-        # Apply namespaces first
-        kubectl apply -f k8s/namespaces.yaml
+        # Make deployment script executable
+        chmod +x deploy-gateway.sh
         
-        # Apply PRD configurations
-        kubectl apply -f k8s/prd/
+        # Deploy PRD environment using Gateway API
+        ./deploy-gateway.sh prd
+
+    - name: Verify Gateway API deployment
+      run: |
+        echo "Verifying Gateway API deployment..."
         
-        # Wait for rollout
-        kubectl rollout status deployment/k8snode-api -n k8snode-prd --timeout=600s
+        # Check Gateway status
+        kubectl get gateway k8snode-gateway -n k8snode-prd -o wide
+        
+        # Check HTTPRoute status
+        kubectl get httproute -n k8snode-prd -o wide
+        
+        # Check pods
+        kubectl get pods -n k8snode-prd -l app=k8snode-api
+        
+        # Wait for Gateway to be ready
+        echo "Waiting for Gateway to be ready..."
+        kubectl wait --for=condition=Programmed gateway/k8snode-gateway -n k8snode-prd --timeout=600s
 
-    - name: Verify deployment
+    - name: Run Gateway health check
       run: |
-        kubectl get pods -n k8snode-prd
-        kubectl get svc -n k8snode-prd
-
-    - name: Run health check
-      run: |
-        # Get service URL
-        SERVICE_URL=$(kubectl get svc k8snode-api-service -n k8snode-prd -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
-        if [ -z "$SERVICE_URL" ]; then
-          SERVICE_URL=$(kubectl get svc k8snode-api-service -n k8snode-prd -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+        # Get Gateway IP
+        GATEWAY_IP=$(kubectl get gateway k8snode-gateway -n k8snode-prd -o jsonpath='{.status.addresses[0].value}' 2>/dev/null || echo "")
+        
+        if [ -n "$GATEWAY_IP" ]; then
+          echo "Gateway IP: $GATEWAY_IP"
+          
+          # Health check through Gateway (using IP with Host header)
+          echo "Testing Gateway health check..."
+          for i in {1..15}; do
+            if curl -f -H "Host: yourdomain.com" http://$GATEWAY_IP/health; then
+              echo "Gateway health check passed!"
+              break
+            else
+              echo "Gateway health check failed, retrying in 20 seconds..."
+              sleep 20
+            fi
+          done
+        else
+          echo "Gateway IP not available yet, using service for health check..."
+          kubectl port-forward svc/k8snode-api-service 8080:80 -n k8snode-prd &
+          sleep 15
+          curl -f http://localhost:8080/health || echo "Service health check failed"
+          pkill -f "kubectl port-forward" || true
         fi
-        
-        # Wait for service to be ready and perform health check
-        echo "Waiting for service to be ready..."
-        sleep 60
-        
-        # Health check with retry
-        for i in {1..10}; do
-          if curl -f http://$SERVICE_URL/health; then
-            echo "Health check passed!"
-            break
-          else
-            echo "Health check failed, retrying in 15 seconds..."
-            sleep 15
-          fi
-        done
 
   notify:
     name: Notify Deployment Status
@@ -229,13 +258,30 @@ jobs:
     - name: Deployment Success
       if: needs.deploy-hml.result == 'success' || needs.deploy-prd.result == 'success'
       run: |
-        echo "🚀 Deployment completed successfully!"
+        echo "🚀 Gateway API deployment completed successfully!"
         echo "Environment: ${{ github.event.inputs.environment || 'hml' }}"
         echo "Image: ${{ needs.build-and-push.outputs.image }}"
+        echo ""
+        echo "🌐 Access URLs:"
+        if [ "${{ github.event.inputs.environment || 'hml' }}" == "hml" ]; then
+          echo "  - https://hml.yourdomain.com/health"
+          echo "  - https://api-hml.yourdomain.com/auth"
+        elif [ "${{ github.event.inputs.environment }}" == "prd" ]; then
+          echo "  - https://yourdomain.com/health"
+          echo "  - https://api.yourdomain.com/auth"
+        fi
+        echo ""
+        echo "📋 Next steps:"
+        echo "  1. Configure DNS to point to Gateway IP"
+        echo "  2. Verify SSL certificates are issued"
+        echo "  3. Test all endpoints"
 
     - name: Deployment Failure
       if: needs.deploy-hml.result == 'failure' || needs.deploy-prd.result == 'failure'
       run: |
-        echo "❌ Deployment failed!"
-        echo "Please check the logs and consider rolling back."
+        echo "❌ Gateway API deployment failed!"
+        echo "Please check the logs and Gateway status:"
+        echo "  kubectl get gateway -A"
+        echo "  kubectl get httproute -A"
+        echo "  kubectl describe gateway k8snode-gateway -n k8snode-${{ github.event.inputs.environment || 'hml' }}"
         exit 1

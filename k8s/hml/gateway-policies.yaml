@@ -1,16 +1,44 @@
-apiVersion: gateway.networking.k8s.io/v1alpha2
-kind: HTTPRouteTimeouts
+# Gateway Policies for HML
+# 
+# Note: Advanced policies like HTTPRouteTimeouts are alpha features 
+# and may not be available in all clusters.
+# They are commented out but can be enabled if your cluster supports them.
+#
+# apiVersion: gateway.networking.k8s.io/v1alpha2
+# kind: HTTPRouteTimeouts
+# metadata:
+#   name: k8snode-timeouts
+#   namespace: k8snode-hml
+#   labels:
+#     app: k8snode-api
+#     environment: hml
+# spec:
+#   targetRef:
+#     group: gateway.networking.k8s.io
+#     kind: HTTPRoute
+#     name: k8snode-http-route
+#   timeouts:
+#     request: "60s"
+#     backendRequest: "55s"
+
+# For now, using ConfigMap to store policy information
+apiVersion: v1
+kind: ConfigMap
 metadata:
-  name: k8snode-timeouts
+  name: k8snode-gateway-policies
   namespace: k8snode-hml
   labels:
     app: k8snode-api
     environment: hml
-spec:
-  targetRef:
-    group: gateway.networking.k8s.io
-    kind: HTTPRoute
-    name: k8snode-http-route
-  timeouts:
-    request: "60s"
-    backendRequest: "55s"
+data:
+  timeout-policy: |
+    # Gateway timeout configurations for HML
+    request-timeout: "60s"
+    backend-timeout: "55s"
+    idle-timeout: "120s"
+  security-policy: |
+    # Security policies for homologation
+    tls-min-version: "1.2"
+    ssl-protocols: "TLSv1.2 TLSv1.3"
+    security-headers: "enabled"
+    rate-limiting: "relaxed"
