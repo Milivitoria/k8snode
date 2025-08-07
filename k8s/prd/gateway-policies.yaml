@@ -1,36 +1,63 @@
-apiVersion: gateway.networking.k8s.io/v1alpha2
-kind: BackendTLSPolicy
+# Gateway Policies for PRD
+# 
+# Note: Advanced policies like BackendTLSPolicy and HTTPRouteTimeouts
+# are alpha features and may not be available in all clusters.
+# They are commented out but can be enabled if your cluster supports them.
+#
+# apiVersion: gateway.networking.k8s.io/v1alpha2
+# kind: BackendTLSPolicy
+# metadata:
+#   name: k8snode-backend-tls
+#   namespace: k8snode-prd
+#   labels:
+#     app: k8snode-api
+#     environment: prd
+# spec:
+#   targetRef:
+#     group: ""
+#     kind: Service
+#     name: k8snode-api-service
+#   tls:
+#     caCertRefs:
+#     - name: ca-secret
+#       group: ""
+#       kind: Secret
+#     hostname: k8snode-api-service.k8snode-prd.svc.cluster.local
+# ---
+# apiVersion: gateway.networking.k8s.io/v1alpha2
+# kind: HTTPRouteTimeouts
+# metadata:
+#   name: k8snode-timeouts
+#   namespace: k8snode-prd
+#   labels:
+#     app: k8snode-api
+#     environment: prd
+# spec:
+#   targetRef:
+#     group: gateway.networking.k8s.io
+#     kind: HTTPRoute
+#     name: k8snode-http-route
+#   timeouts:
+#     request: "30s"
+#     backendRequest: "25s"
+
+# For now, using ConfigMap to store policy information
+apiVersion: v1
+kind: ConfigMap
 metadata:
-  name: k8snode-backend-tls
+  name: k8snode-gateway-policies
   namespace: k8snode-prd
   labels:
     app: k8snode-api
     environment: prd
-spec:
-  targetRef:
-    group: ""
-    kind: Service
-    name: k8snode-api-service
-  tls:
-    caCertRefs:
-    - name: ca-secret
-      group: ""
-      kind: Secret
-    hostname: k8snode-api-service.k8snode-prd.svc.cluster.local
----
-apiVersion: gateway.networking.k8s.io/v1alpha2
-kind: HTTPRouteTimeouts
-metadata:
-  name: k8snode-timeouts
-  namespace: k8snode-prd
-  labels:
-    app: k8snode-api
-    environment: prd
-spec:
-  targetRef:
-    group: gateway.networking.k8s.io
-    kind: HTTPRoute
-    name: k8snode-http-route
-  timeouts:
-    request: "30s"
-    backendRequest: "25s"
+data:
+  timeout-policy: |
+    # Gateway timeout configurations
+    request-timeout: "30s"
+    backend-timeout: "25s"
+    idle-timeout: "60s"
+  security-policy: |
+    # Security policies for production
+    tls-min-version: "1.2"
+    ssl-protocols: "TLSv1.2 TLSv1.3"
+    security-headers: "enabled"
